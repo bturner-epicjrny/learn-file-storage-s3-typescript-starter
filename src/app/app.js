@@ -224,7 +224,6 @@ function createVideoStateHandler() {
     if (currentVideoID !== videoID) {
       currentVideoID = videoID;
 
-      // Reset file input values
       document.getElementById("thumbnail").value = "";
       document.getElementById("video-file").value = "";
 
@@ -266,7 +265,7 @@ function viewVideo(video) {
     thumbnailImg.style.display = "none";
   } else {
     thumbnailImg.style.display = "block";
-    thumbnailImg.src = `${video.thumbnailURL}?v=${Date.now()}`;
+    thumbnailImg.src = video.thumbnailURL;
   }
 
   const videoPlayer = document.getElementById("video-player");
