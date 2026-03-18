@@ -31,6 +31,11 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
     throw new BadRequestError("Thumbnail file too large");
   }
 
+  const mediaType = file.type;
+  if (mediaType !== "image/jpeg" && mediaType !== "image/png") {
+    throw new BadRequestError("Thumbnail must be a JPEG or PNG image");
+  }
+
   const video = getVideo(cfg.db, videoId);
   if (!video) {
     throw new NotFoundError("Couldn't find video");
@@ -40,7 +45,6 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
     throw new UserForbiddenError("You are not the owner of this video");
   }
 
-  const mediaType = file.type;
   const extension = mediaType.split("/")[1];
   if (!extension) {
     throw new BadRequestError("Invalid thumbnail media type");
