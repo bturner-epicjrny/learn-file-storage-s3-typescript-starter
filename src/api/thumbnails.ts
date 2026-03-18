@@ -8,6 +8,7 @@ import {
   NotFoundError,
   UserForbiddenError,
 } from "./errors";
+import path from "path";
 
 export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
   const { videoId } = req.params as { videoId?: string };
@@ -17,8 +18,6 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 
   const token = getBearerToken(req.headers);
   const userID = validateJWT(token, cfg.jwtSecret);
-
-  console.log("uploading thumbnail for video", videoId, "by user", userID);
 
   const formData = await req.formData();
   const file = formData.get("thumbnail");
@@ -32,9 +31,6 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
     throw new BadRequestError("Thumbnail file too large");
   }
 
-  const mediaType = file.type;
-  const data = await file.arrayBuffer();
-
   const video = getVideo(cfg.db, videoId);
   if (!video) {
     throw new NotFoundError("Couldn't find video");
@@ -44,10 +40,18 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
     throw new UserForbiddenError("You are not the owner of this video");
   }
 
-  const buffer = Buffer.from(data);
-  const base64Data = buffer.toString("base64");
-  const thumbnailURL = `data:${mediaType};base64,${base64Data}`;
+  const mediaType = file.type;
+  const extension = mediaType.split("/")[1];
+  if (!extension) {
+    throw new BadRequestError("Invalid thumbnail media type");
+  }
 
+  const fileName = `${videoId}.${extension}`;
+  const filePath = path.join(cfg.assetsRoot, fileName);
+
+  await Bun.write(filePath, file);
+
+  const thumbnailURL = `http://localhost:${cfg.port}/assets/${fileName}`;
   const updatedVideo = {
     ...video,
     thumbnailURL,
