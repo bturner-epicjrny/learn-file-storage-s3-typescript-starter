@@ -1,5 +1,6 @@
 *.db
 .env
+.DS_Store
 assets/
 samples/
 node_modules/
