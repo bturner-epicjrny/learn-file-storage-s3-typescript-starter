@@ -84,6 +84,42 @@ async function getVideoAspectRatio(
   return "other";
 }
 
+async function processVideoForFastStart(inputFilePath: string): Promise<string> {
+  const outputFilePath = `${inputFilePath}.processed`;
+
+  const proc = Bun.spawn(
+    [
+      "ffmpeg",
+      "-i",
+      inputFilePath,
+      "-movflags",
+      "faststart",
+      "-map_metadata",
+      "0",
+      "-codec",
+      "copy",
+      "-f",
+      "mp4",
+      outputFilePath,
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+
+  const stderrText = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    throw new BadRequestError(
+      `Failed to process video for fast start: ${stderrText || "ffmpeg error"}`,
+    );
+  }
+
+  return outputFilePath;
+}
+
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   const { videoId } = req.params as { videoId?: string };
   if (
@@ -129,8 +165,12 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 
   await Bun.write(tempFilePath, file);
 
+  let processedFilePath: string | null = null;
+
   try {
     const aspectPrefix = await getVideoAspectRatio(tempFilePath);
+    processedFilePath = await processVideoForFastStart(tempFilePath);
+
     const key = `${aspectPrefix}/${randomBytes(32).toString("hex")}.${ext}`;
 
     const s3File = cfg.s3Client.file(key, {
@@ -138,7 +178,7 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
       type: file.type,
     });
 
-    await s3File.write(Bun.file(tempFilePath));
+    await s3File.write(Bun.file(processedFilePath));
 
     const videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${key}`;
     const updatedVideo = {
@@ -151,5 +191,8 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     return respondWithJSON(200, updatedVideo);
   } finally {
     await Bun.file(tempFilePath).delete().catch(() => {});
+    if (processedFilePath) {
+      await Bun.file(processedFilePath).delete().catch(() => {});
+    }
   }
 }
