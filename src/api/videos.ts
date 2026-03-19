@@ -12,6 +12,78 @@ import type { BunRequest } from "bun";
 import { randomBytes } from "crypto";
 import path from "path";
 
+type FfprobeStream = {
+  width?: number;
+  height?: number;
+};
+
+type FfprobeResult = {
+  streams?: FfprobeStream[];
+};
+
+async function getVideoAspectRatio(
+  filePath: string,
+): Promise<"landscape" | "portrait" | "other"> {
+  const proc = Bun.spawn(
+    [
+      "ffprobe",
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+      "-of",
+      "json",
+      filePath,
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+
+  const stdoutText = await new Response(proc.stdout).text();
+  const stderrText = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    throw new BadRequestError(
+      `Failed to inspect video file: ${stderrText || "ffprobe error"}`,
+    );
+  }
+
+  let parsed: FfprobeResult;
+  try {
+    parsed = JSON.parse(stdoutText) as FfprobeResult;
+  } catch {
+    throw new BadRequestError("Failed to parse ffprobe output");
+  }
+
+  const stream = parsed.streams?.[0];
+  const width = stream?.width;
+  const height = stream?.height;
+
+  if (!width || !height) {
+    throw new BadRequestError("Could not determine video dimensions");
+  }
+
+  const ratio = width / height;
+  const landscapeRatio = 16 / 9;
+  const portraitRatio = 9 / 16;
+  const tolerance = 0.05;
+
+  if (Math.abs(ratio - landscapeRatio) <= tolerance) {
+    return "landscape";
+  }
+
+  if (Math.abs(ratio - portraitRatio) <= tolerance) {
+    return "portrait";
+  }
+
+  return "other";
+}
+
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   const { videoId } = req.params as { videoId?: string };
   if (
@@ -58,7 +130,9 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   await Bun.write(tempFilePath, file);
 
   try {
-    const key = `${randomBytes(32).toString("hex")}.${ext}`;
+    const aspectPrefix = await getVideoAspectRatio(tempFilePath);
+    const key = `${aspectPrefix}/${randomBytes(32).toString("hex")}.${ext}`;
+
     const s3File = cfg.s3Client.file(key, {
       bucket: cfg.s3Bucket,
       type: file.type,
