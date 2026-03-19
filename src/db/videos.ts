@@ -1,5 +1,32 @@
 import { randomUUID } from "crypto";
 import type { Database } from "bun:sqlite";
+import type { ApiConfig } from "../config";
+
+export async function generatePresignedURL(
+  cfg: ApiConfig,
+  key: string,
+  expireTime: number,
+) {
+  return await cfg.s3Client
+    .file(key, { bucket: cfg.s3Bucket })
+    .presign({
+      expiresIn: expireTime,
+      method: "GET",
+    });
+}
+
+export async function dbVideoToSignedVideo(cfg: ApiConfig, video: Video) {
+  if (!video.videoURL) {
+    return video;
+  }
+
+  const signedURL = await generatePresignedURL(cfg, video.videoURL, 60 * 5);
+
+  return {
+    ...video,
+    videoURL: signedURL,
+  };
+}
 
 export type Video = {
   id: string;

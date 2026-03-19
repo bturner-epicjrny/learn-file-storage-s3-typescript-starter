@@ -11,6 +11,7 @@ import { type ApiConfig } from "../config";
 import type { BunRequest } from "bun";
 import { randomBytes } from "crypto";
 import path from "path";
+import { dbVideoToSignedVideo } from "../db/videos";
 
 type FfprobeStream = {
   width?: number;
@@ -180,15 +181,15 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 
     await s3File.write(Bun.file(processedFilePath));
 
-    const videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${key}`;
     const updatedVideo = {
       ...video,
-      videoURL,
+      videoURL: key,
     };
 
     updateVideo(cfg.db, updatedVideo);
 
-    return respondWithJSON(200, updatedVideo);
+    const signedVideo = await dbVideoToSignedVideo(cfg, updatedVideo);
+    return respondWithJSON(200, signedVideo);
   } finally {
     await Bun.file(tempFilePath).delete().catch(() => {});
     if (processedFilePath) {
